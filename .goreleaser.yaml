@@ -1,0 +1,46 @@
+version: 2
+project_name: terraform-provider-b1fr0st
+before:
+  hooks:
+    - go mod tidy
+builds:
+  - id: provider
+    main: .
+    binary: terraform-provider-b1fr0st
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows, freebsd]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: freebsd
+        goarch: arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+archives:
+  - formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - .terraform-registry-manifest.json
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_SHA256SUMS"
+signs:
+  - cmd: gpg
+    args:
+      - --batch
+      - --pinentry-mode
+      - loopback
+      - --passphrase
+      - "{{ .Env.GPG_PASSPHRASE }}"
+      - --local-user
+      - "{{ .Env.GPG_FINGERPRINT }}"
+      - --armor
+      - --detach-sign
+      - --output
+      - "${signature}"
+      - "${artifact}"
+    artifacts: checksum
+    signature: "${artifact}.sig"
+release:
+  github:
+    owner: RobinHellgren
+    name: terraform-provider-b1fr0st
