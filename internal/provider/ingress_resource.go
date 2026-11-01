@@ -14,9 +14,24 @@ import (
 
 var _ resource.Resource = (*IngressResource)(nil)
 var _ resource.ResourceWithConfigure = (*IngressResource)(nil)
+var _ resource.ResourceWithUpgradeState = (*IngressResource)(nil)
 
 type IngressResource struct{ client *APIClient }
 type IngressModel struct {
+	ID           types.String `tfsdk:"id"`
+	ProjectID    types.String `tfsdk:"project_id"`
+	Name         types.String `tfsdk:"name"`
+	DomainID     types.String `tfsdk:"domain_id"`
+	Subdomain    types.String `tfsdk:"subdomain"`
+	SiteID       types.Int64  `tfsdk:"site_id"`
+	InstanceName types.String `tfsdk:"instance_name"`
+	Port         types.Int64  `tfsdk:"port"`
+	Hostname     types.String `tfsdk:"hostname"`
+	Certificate  types.String `tfsdk:"certificate"`
+	Target       types.String `tfsdk:"target"`
+}
+
+type priorIngressModel struct {
 	ID           types.String `tfsdk:"id"`
 	TenantID     types.String `tfsdk:"tenant_id"`
 	Name         types.String `tfsdk:"name"`
@@ -36,9 +51,9 @@ func (r *IngressResource) Metadata(_ context.Context, req resource.MetadataReque
 }
 func (r *IngressResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	replace := []planmodifier.String{stringplanmodifier.RequiresReplace()}
-	resp.Schema = schema.Schema{Attributes: map[string]schema.Attribute{
+	resp.Schema = schema.Schema{Version: 1, Attributes: map[string]schema.Attribute{
 		"id":            schema.StringAttribute{Computed: true, Description: "Managed Pangolin resource identifier."},
-		"tenant_id":     schema.StringAttribute{Required: true, PlanModifiers: replace, Description: "Tenant UUID that owns this ingress."},
+		"project_id":    schema.StringAttribute{Required: true, PlanModifiers: replace, Description: "Project UUID that owns the ingress workload. The project belongs to a tenant account."},
 		"name":          schema.StringAttribute{Required: true, PlanModifiers: replace, Description: "Display name for the Pangolin resource."},
 		"domain_id":     schema.StringAttribute{Required: true, PlanModifiers: replace, Description: "Pangolin domain identifier assigned to the tenant."},
 		"subdomain":     schema.StringAttribute{Required: true, PlanModifiers: replace, Description: "DNS label to create under the selected domain."},
@@ -48,6 +63,32 @@ func (r *IngressResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 		"hostname":      schema.StringAttribute{Computed: true, Description: "Public hostname provisioned in Pangolin."},
 		"certificate":   schema.StringAttribute{Computed: true, Description: "Certificate status reported by the platform."},
 		"target":        schema.StringAttribute{Computed: true, Description: "Resolved upstream target."},
+	}}
+}
+
+func (r *IngressResource) UpgradeState(_ context.Context) map[int64]resource.StateUpgrader {
+	return map[int64]resource.StateUpgrader{0: {
+		PriorSchema: &schema.Schema{Attributes: map[string]schema.Attribute{
+			"id": schema.StringAttribute{Computed: true}, "tenant_id": schema.StringAttribute{Required: true},
+			"name": schema.StringAttribute{Required: true}, "domain_id": schema.StringAttribute{Required: true},
+			"subdomain": schema.StringAttribute{Required: true}, "site_id": schema.Int64Attribute{Required: true},
+			"instance_name": schema.StringAttribute{Optional: true}, "port": schema.Int64Attribute{Required: true},
+			"hostname": schema.StringAttribute{Computed: true}, "certificate": schema.StringAttribute{Computed: true},
+			"target": schema.StringAttribute{Computed: true},
+		}},
+		StateUpgrader: func(ctx context.Context, req resource.UpgradeStateRequest, resp *resource.UpgradeStateResponse) {
+			var prior priorIngressModel
+			resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
+			if resp.Diagnostics.HasError() {
+				return
+			}
+			current := IngressModel{
+				ID: prior.ID, ProjectID: prior.TenantID, Name: prior.Name, DomainID: prior.DomainID,
+				Subdomain: prior.Subdomain, SiteID: prior.SiteID, InstanceName: prior.InstanceName,
+				Port: prior.Port, Hostname: prior.Hostname, Certificate: prior.Certificate, Target: prior.Target,
+			}
+			resp.Diagnostics.Append(resp.State.Set(ctx, &current)...)
+		},
 	}}
 }
 func (r *IngressResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -67,7 +108,7 @@ func (r *IngressResource) Create(ctx context.Context, req resource.CreateRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	input := map[string]any{"tenantId": p.TenantID.ValueString(), "name": p.Name.ValueString(), "domainId": p.DomainID.ValueString(), "subdomain": p.Subdomain.ValueString(), "siteId": p.SiteID.ValueInt64(), "port": p.Port.ValueInt64()}
+	input := map[string]any{"projectId": p.ProjectID.ValueString(), "name": p.Name.ValueString(), "domainId": p.DomainID.ValueString(), "subdomain": p.Subdomain.ValueString(), "siteId": p.SiteID.ValueInt64(), "port": p.Port.ValueInt64()}
 	if !p.InstanceName.IsNull() && !p.InstanceName.IsUnknown() {
 		input["instanceName"] = p.InstanceName.ValueString()
 	}

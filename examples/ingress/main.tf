@@ -2,17 +2,17 @@ terraform {
   required_providers {
     b1fr0st = {
       source  = "robinhellgren/b1fr0st"
-      version = "~> 0.1"
+      version = "~> 0.2.1"
     }
   }
 }
 
 provider "b1fr0st" {}
 
-variable "tenant_id" { type = string }
+variable "project_id" { type = string }
 
 resource "b1fr0st_ingress" "web" {
-  tenant_id    = var.tenant_id
+  project_id   = var.project_id
   name         = "Web app"
   domain_id    = var.domain_id
   subdomain    = "web"

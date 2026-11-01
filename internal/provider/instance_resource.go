@@ -16,9 +16,25 @@ import (
 
 var _ resource.Resource = (*InstanceResource)(nil)
 var _ resource.ResourceWithConfigure = (*InstanceResource)(nil)
+var _ resource.ResourceWithUpgradeState = (*InstanceResource)(nil)
 
 type InstanceResource struct{ client *APIClient }
 type InstanceModel struct {
+	ID              types.String `tfsdk:"id"`
+	ProjectID       types.String `tfsdk:"project_id"`
+	Network         types.String `tfsdk:"network"`
+	Name            types.String `tfsdk:"name"`
+	Type            types.String `tfsdk:"type"`
+	Image           types.String `tfsdk:"image"`
+	ImageSecret     types.String `tfsdk:"image_secret"`
+	Profile         types.String `tfsdk:"profile"`
+	CloudInit       types.String `tfsdk:"cloud_init"`
+	Project         types.String `tfsdk:"project"`
+	Environment     types.Map    `tfsdk:"environment"`
+	PersistentPaths types.Set    `tfsdk:"persistent_paths"`
+}
+
+type priorInstanceModel struct {
 	ID              types.String `tfsdk:"id"`
 	TenantID        types.String `tfsdk:"tenant_id"`
 	ProjectID       types.String `tfsdk:"project_id"`
@@ -40,10 +56,9 @@ func (r *InstanceResource) Metadata(_ context.Context, req resource.MetadataRequ
 }
 func (r *InstanceResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	replace := []planmodifier.String{stringplanmodifier.RequiresReplace()}
-	resp.Schema = schema.Schema{Attributes: map[string]schema.Attribute{
+	resp.Schema = schema.Schema{Version: 1, Attributes: map[string]schema.Attribute{
 		"id":               schema.StringAttribute{Computed: true, Description: "Platform instance identifier."},
-		"tenant_id":        schema.StringAttribute{Optional: true, PlanModifiers: replace, Description: "Tenant UUID in which to create the instance. Use either tenant_id or project_id."},
-		"project_id":       schema.StringAttribute{Optional: true, PlanModifiers: replace, Description: "Project UUID in which to create the instance. Administrators can use this to create system-project services."},
+		"project_id":       schema.StringAttribute{Required: true, PlanModifiers: replace, Description: "Project UUID that groups the workload. Projects belong to tenant accounts."},
 		"network":          schema.StringAttribute{Optional: true, PlanModifiers: replace, Description: "Managed Incus bridge network to attach to the instance. Useful for administrator-managed system services."},
 		"name":             schema.StringAttribute{Required: true, PlanModifiers: replace, Description: "Instance name (lowercase letters, digits, and hyphens)."},
 		"type":             schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString("container"), PlanModifiers: replace, Description: "Workload type: container, virtual-machine, or OCI application."},
@@ -54,6 +69,39 @@ func (r *InstanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 		"environment":      schema.MapAttribute{Optional: true, Sensitive: true, ElementType: types.StringType, PlanModifiers: []planmodifier.Map{mapplanmodifier.RequiresReplace()}, Description: "Environment variables for a container or OCI application. Values are stored in Terraform state."},
 		"persistent_paths": schema.SetAttribute{Optional: true, ElementType: types.StringType, PlanModifiers: []planmodifier.Set{setplanmodifier.RequiresReplace()}, Description: "Paths backed by persistent volumes on the shared NAS storage pool. Volumes survive instance replacement and deletion."},
 		"project":          schema.StringAttribute{Computed: true, Description: "Incus project assigned to the tenant."},
+	}}
+}
+
+func (r *InstanceResource) UpgradeState(_ context.Context) map[int64]resource.StateUpgrader {
+	return map[int64]resource.StateUpgrader{0: {
+		PriorSchema: &schema.Schema{Attributes: map[string]schema.Attribute{
+			"id": schema.StringAttribute{Computed: true}, "tenant_id": schema.StringAttribute{Optional: true},
+			"project_id": schema.StringAttribute{Optional: true}, "network": schema.StringAttribute{Optional: true},
+			"name": schema.StringAttribute{Required: true}, "type": schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString("container")},
+			"image": schema.StringAttribute{Required: true}, "image_secret": schema.StringAttribute{Optional: true, Sensitive: true},
+			"profile":    schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString("micro")},
+			"cloud_init": schema.StringAttribute{Optional: true, Sensitive: true}, "project": schema.StringAttribute{Computed: true},
+			"environment":      schema.MapAttribute{Optional: true, Sensitive: true, ElementType: types.StringType},
+			"persistent_paths": schema.SetAttribute{Optional: true, ElementType: types.StringType},
+		}},
+		StateUpgrader: func(ctx context.Context, req resource.UpgradeStateRequest, resp *resource.UpgradeStateResponse) {
+			var prior priorInstanceModel
+			resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
+			if resp.Diagnostics.HasError() {
+				return
+			}
+			projectID := prior.ProjectID
+			if projectID.IsNull() || projectID.IsUnknown() {
+				projectID = prior.TenantID
+			}
+			current := InstanceModel{
+				ID: prior.ID, ProjectID: projectID, Network: prior.Network, Name: prior.Name,
+				Type: prior.Type, Image: prior.Image, ImageSecret: prior.ImageSecret, Profile: prior.Profile,
+				CloudInit: prior.CloudInit, Project: prior.Project, Environment: prior.Environment,
+				PersistentPaths: prior.PersistentPaths,
+			}
+			resp.Diagnostics.Append(resp.State.Set(ctx, &current)...)
+		},
 	}}
 }
 func (r *InstanceResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -73,16 +121,8 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if plan.TenantID.IsNull() == plan.ProjectID.IsNull() {
-		resp.Diagnostics.AddError("Choose one project owner", "Set exactly one of tenant_id or project_id.")
-		return
-	}
 	input := map[string]any{"name": plan.Name.ValueString(), "type": plan.Type.ValueString(), "image": plan.Image.ValueString(), "profile": plan.Profile.ValueString()}
-	if !plan.ProjectID.IsNull() && !plan.ProjectID.IsUnknown() {
-		input["projectId"] = plan.ProjectID.ValueString()
-	} else {
-		input["tenantId"] = plan.TenantID.ValueString()
-	}
+	input["projectId"] = plan.ProjectID.ValueString()
 	if !plan.Network.IsNull() && !plan.Network.IsUnknown() {
 		input["network"] = plan.Network.ValueString()
 	}
@@ -120,9 +160,7 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 	}
 	plan.ID = types.StringValue(result.ID)
 	plan.Project = types.StringValue(result.Project)
-	if !plan.ProjectID.IsNull() {
-		plan.ProjectID = types.StringValue(result.ProjectID)
-	}
+	plan.ProjectID = types.StringValue(result.ProjectID)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 func (r *InstanceResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -133,7 +171,6 @@ func (r *InstanceResource) Read(ctx context.Context, req resource.ReadRequest, r
 	}
 	var result struct {
 		ID              string            `json:"id"`
-		TenantID        string            `json:"tenantId"`
 		ProjectID       string            `json:"projectId"`
 		Name            string            `json:"name"`
 		Type            string            `json:"type"`
@@ -154,15 +191,11 @@ func (r *InstanceResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 	state.ID = types.StringValue(result.ID)
-	if !state.TenantID.IsNull() {
-		state.TenantID = types.StringValue(result.TenantID)
-	}
 	if result.ProjectID == "" {
-		result.ProjectID = result.TenantID
+		resp.Diagnostics.AddError("Read instance failed", "The platform API did not return a project ID for this workload.")
+		return
 	}
-	if !state.ProjectID.IsNull() {
-		state.ProjectID = types.StringValue(result.ProjectID)
-	}
+	state.ProjectID = types.StringValue(result.ProjectID)
 	state.Name = types.StringValue(result.Name)
 	state.Type = types.StringValue(result.Type)
 	state.Image = types.StringValue(result.Image)

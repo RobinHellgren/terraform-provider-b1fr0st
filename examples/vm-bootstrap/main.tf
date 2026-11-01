@@ -2,14 +2,14 @@ terraform {
   required_providers {
     b1fr0st = {
       source  = "robinhellgren/b1fr0st"
-      version = "~> 0.2"
+      version = "~> 0.2.1"
     }
   }
 }
 
 provider "b1fr0st" {}
 
-variable "tenant_id" {
+variable "project_id" {
   type = string
 }
 
@@ -19,7 +19,7 @@ variable "ssh_public_key" {
 }
 
 resource "b1fr0st_instance" "worker" {
-  tenant_id = var.tenant_id
+  project_id = var.project_id
   name      = "worker"
   type      = "virtual-machine"
   image     = "ubuntu/24.04/cloud"

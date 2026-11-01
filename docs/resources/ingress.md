@@ -4,7 +4,7 @@ Creates a managed Pangolin HTTP resource with SSL enabled and routes it through 
 
 ## Arguments
 
-- `tenant_id` (Required) Tenant UUID.
+- `project_id` (Required) Project UUID that owns the application and its ingress. Tenant accounts own projects.
 - `name` (Required) Pangolin resource display name.
 - `domain_id` (Required) Pangolin domain assigned to the tenant.
 - `subdomain` (Required) DNS label.
