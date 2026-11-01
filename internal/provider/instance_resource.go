@@ -44,7 +44,7 @@ func (r *InstanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 		"name":             schema.StringAttribute{Required: true, PlanModifiers: replace, Description: "Instance name (lowercase letters, digits, and hyphens)."},
 		"type":             schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString("container"), PlanModifiers: replace, Description: "Workload type: container, virtual-machine, or OCI application."},
 		"image":            schema.StringAttribute{Required: true, PlanModifiers: replace, Description: "Incus image alias, or a GHCR image reference for application workloads."},
-		"image_secret":     schema.StringAttribute{Optional: true, Sensitive: true, PlanModifiers: replace, Description: "Registry pull token for private GHCR application images. Stored in Terraform state."},
+		"image_secret":     schema.StringAttribute{Optional: true, Sensitive: true, PlanModifiers: replace, Description: "Registry credentials as username:token for private GHCR images. Stored in Terraform state."},
 		"profile":          schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString("micro"), PlanModifiers: replace, Description: "Sizing profile: micro, small, medium, large, or xlarge."},
 		"cloud_init":       schema.StringAttribute{Optional: true, Sensitive: true, PlanModifiers: replace, Description: "Optional cloud-init document for a cloud-enabled image."},
 		"environment":      schema.MapAttribute{Optional: true, Sensitive: true, ElementType: types.StringType, PlanModifiers: []planmodifier.Map{mapplanmodifier.RequiresReplace()}, Description: "Environment variables for a container or OCI application. Values are stored in Terraform state."},
