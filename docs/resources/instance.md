@@ -1,10 +1,12 @@
 # b1fr0st_instance
 
-Creates an Incus container or virtual machine in a tenant project.
+Creates an Incus container or virtual machine in a tenant project. Administrators can target a project directly for system services.
 
 ## Arguments
 
-- `tenant_id` (Required) Tenant UUID.
+- `tenant_id` (Optional) Tenant UUID. Set exactly one of `tenant_id` or `project_id`.
+- `project_id` (Optional) Project UUID. Administrators can use this to manage workloads in the system project.
+- `network` (Optional) Managed Incus bridge to attach to the workload, such as `incusbr0` for an administrator-managed system service.
 - `name` (Required) Instance name.
 - `type` (Optional, defaults to `container`) `container` or `virtual-machine`.
 - `image` (Required) Supported image alias.

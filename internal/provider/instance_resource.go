@@ -21,6 +21,8 @@ type InstanceResource struct{ client *APIClient }
 type InstanceModel struct {
 	ID              types.String `tfsdk:"id"`
 	TenantID        types.String `tfsdk:"tenant_id"`
+	ProjectID       types.String `tfsdk:"project_id"`
+	Network         types.String `tfsdk:"network"`
 	Name            types.String `tfsdk:"name"`
 	Type            types.String `tfsdk:"type"`
 	Image           types.String `tfsdk:"image"`
@@ -40,7 +42,9 @@ func (r *InstanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 	replace := []planmodifier.String{stringplanmodifier.RequiresReplace()}
 	resp.Schema = schema.Schema{Attributes: map[string]schema.Attribute{
 		"id":               schema.StringAttribute{Computed: true, Description: "Platform instance identifier."},
-		"tenant_id":        schema.StringAttribute{Required: true, PlanModifiers: replace, Description: "Tenant UUID in which to create the instance."},
+		"tenant_id":        schema.StringAttribute{Optional: true, PlanModifiers: replace, Description: "Tenant UUID in which to create the instance. Use either tenant_id or project_id."},
+		"project_id":       schema.StringAttribute{Optional: true, PlanModifiers: replace, Description: "Project UUID in which to create the instance. Administrators can use this to create system-project services."},
+		"network":          schema.StringAttribute{Optional: true, PlanModifiers: replace, Description: "Managed Incus bridge network to attach to the instance. Useful for administrator-managed system services."},
 		"name":             schema.StringAttribute{Required: true, PlanModifiers: replace, Description: "Instance name (lowercase letters, digits, and hyphens)."},
 		"type":             schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString("container"), PlanModifiers: replace, Description: "Workload type: container, virtual-machine, or OCI application."},
 		"image":            schema.StringAttribute{Required: true, PlanModifiers: replace, Description: "Incus image alias, or a GHCR image reference for application workloads."},
@@ -69,7 +73,19 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	input := map[string]any{"tenantId": plan.TenantID.ValueString(), "name": plan.Name.ValueString(), "type": plan.Type.ValueString(), "image": plan.Image.ValueString(), "profile": plan.Profile.ValueString()}
+	if plan.TenantID.IsNull() == plan.ProjectID.IsNull() {
+		resp.Diagnostics.AddError("Choose one project owner", "Set exactly one of tenant_id or project_id.")
+		return
+	}
+	input := map[string]any{"name": plan.Name.ValueString(), "type": plan.Type.ValueString(), "image": plan.Image.ValueString(), "profile": plan.Profile.ValueString()}
+	if !plan.ProjectID.IsNull() && !plan.ProjectID.IsUnknown() {
+		input["projectId"] = plan.ProjectID.ValueString()
+	} else {
+		input["tenantId"] = plan.TenantID.ValueString()
+	}
+	if !plan.Network.IsNull() && !plan.Network.IsUnknown() {
+		input["network"] = plan.Network.ValueString()
+	}
 	if !plan.ImageSecret.IsNull() && !plan.ImageSecret.IsUnknown() {
 		input["imageSecret"] = plan.ImageSecret.ValueString()
 	}
@@ -93,8 +109,9 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 		input["cloudInit"] = plan.CloudInit.ValueString()
 	}
 	var result struct {
-		ID      string `json:"id"`
-		Project string `json:"project"`
+		ID        string `json:"id"`
+		ProjectID string `json:"projectId"`
+		Project   string `json:"project"`
 	}
 	_, err := r.client.Request(ctx, "POST", "/instances", input, &result)
 	if err != nil {
@@ -103,6 +120,9 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 	}
 	plan.ID = types.StringValue(result.ID)
 	plan.Project = types.StringValue(result.Project)
+	if !plan.ProjectID.IsNull() {
+		plan.ProjectID = types.StringValue(result.ProjectID)
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 func (r *InstanceResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -114,6 +134,7 @@ func (r *InstanceResource) Read(ctx context.Context, req resource.ReadRequest, r
 	var result struct {
 		ID              string            `json:"id"`
 		TenantID        string            `json:"tenantId"`
+		ProjectID       string            `json:"projectId"`
 		Name            string            `json:"name"`
 		Type            string            `json:"type"`
 		Image           string            `json:"image"`
@@ -133,7 +154,15 @@ func (r *InstanceResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 	state.ID = types.StringValue(result.ID)
-	state.TenantID = types.StringValue(result.TenantID)
+	if !state.TenantID.IsNull() {
+		state.TenantID = types.StringValue(result.TenantID)
+	}
+	if result.ProjectID == "" {
+		result.ProjectID = result.TenantID
+	}
+	if !state.ProjectID.IsNull() {
+		state.ProjectID = types.StringValue(result.ProjectID)
+	}
 	state.Name = types.StringValue(result.Name)
 	state.Type = types.StringValue(result.Type)
 	state.Image = types.StringValue(result.Image)
