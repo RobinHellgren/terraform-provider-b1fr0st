@@ -2,7 +2,7 @@ terraform {
   required_providers {
     b1fr0st = {
       source  = "robinhellgren/b1fr0st"
-      version = "~> 0.2.1"
+      version = "~> 0.3.0"
     }
   }
 }

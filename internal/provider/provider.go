@@ -78,6 +78,10 @@ func (p *B1fr0stProvider) Resources(_ context.Context) []func() resource.Resourc
 	return []func() resource.Resource{
 		NewInstanceResource,
 		NewIngressResource,
+		NewNetworkResource,
+		NewDiskResource,
+		NewNetworkForwardResource,
+		NewBucketResource,
 	}
 }
 
